@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>HydCast - Cartographie & Hydrologie</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; }
+        #map { flex: 2; height: 100%; }
+        #sidebar { flex: 1; padding: 20px; box-sizing: border-box; overflow-y: auto; background: #f8f9fa; border-left: 1px solid #ccc; }
+        canvas { max-width: 100%; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+    <div id="sidebar">
+        <h2>HydCast</h2>
+        <p>Cliquez sur un bassin versant sur la carte pour afficher l'historique et les prévisions de pluie.</p>
+        <div id="info"></div>
+        <canvas id="rainChart"></canvas>
+    </div>
+
+    <!-- Leaflet JS & Chart.js -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
