@@ -1,0 +1,690 @@
+```html
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HydCast - Hydrologie & Prévisions de Débit</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        hydro: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                            950: '#082f49',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Custom CSS -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #map {
+            height: calc(100vh - 4rem);
+            width: 100%;
+            z-index: 1;
+        }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        .dark ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(14, 165, 233, 0.5);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(14, 165, 233, 0.8);
+        }
+        /* Leaflet Map Dark Mode override */
+        .dark .leaflet-tile {
+            filter: brightness(0.7) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+        }
+        .dark .leaflet-container {
+            background: #091322;
+        }
+        .leaflet-popup-content-wrapper {
+            border-radius: 0.75rem;
+            padding: 4px;
+        }
+        .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip {
+            background: #0f172a;
+            color: #f8fafc;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col h-screen overflow-hidden transition-colors duration-200">
+
+    <!-- Header / Navbar -->
+    <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between z-10 shrink-0">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-hydro-600 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-hydro-500/30">
+                <i class="fa-solid font-bold fa-water text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-hydro-600 to-cyan-400 bg-clip-text text-transparent leading-none">HydCast</h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">Suivi & Prévisions Hydrologiques</p>
+            </div>
+        </div>
+
+        <!-- Search & Filters -->
+        <div class="flex-1 max-w-xl mx-4 hidden md:flex items-center space-x-2">
+            <div class="relative w-full">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                <input type="text" id="searchInput" placeholder="Rechercher une rivière ou un bassin..." class="w-full pl-9 pr-4 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-hydro-500 text-slate-800 dark:text-slate-100 placeholder-slate-400">
+            </div>
+            <select id="filterVigilance" class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-hydro-500">
+                <option value="all">Toutes vigilances</option>
+                <option value="vert">🟢 Vert (Normal)</option>
+                <option value="jaune">🟡 Jaune (Vigilance)</option>
+                <option value="orange">🟠 Orange (Risque élevé)</option>
+                <option value="rouge">🔴 Rouge (Crue majeure)</option>
+            </select>
+        </div>
+
+        <!-- Action Controls -->
+        <div class="flex items-center space-x-2">
+            <button id="toggleTheme" class="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Basculer le mode Sombre/Clair">
+                <i class="fa-solid fa-moon dark:hidden"></i>
+                <i class="fa-solid fa-sun hidden dark:inline"></i>
+            </button>
+            <button id="exportData" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-lg flex items-center space-x-2 transition border border-slate-200 dark:border-slate-700">
+                <i class="fa-solid fa-download text-xs"></i>
+                <span class="hidden sm:inline">Exporter</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="flex-1 flex relative overflow-hidden">
+        
+        <!-- Map Container -->
+        <div class="flex-1 relative">
+            <div id="map"></div>
+            
+            <!-- Map Overlay Legend -->
+            <div class="absolute bottom-6 left-6 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur border border-slate-200 dark:border-slate-800 p-3 rounded-xl shadow-xl text-xs space-y-2">
+                <div class="font-semibold text-slate-700 dark:text-slate-200 mb-1">Vigilance Crues</div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span>Vert (Normal)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-amber-400"></span><span>Jaune (Modéré)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-orange-500"></span><span>Orange (Élevé)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-red-600"></span><span>Rouge (Majeur)</span></div>
+                <hr class="border-slate-200 dark:border-slate-800 my-1">
+                <div class="flex items-center space-x-2"><span class="w-4 h-0.5 border-b-2 border-dashed border-hydro-500"></span><span>Bassin versant</span></div>
+            </div>
+        </div>
+
+        <!-- Sidebar / Hydro Panel (Collapsible) -->
+        <aside id="hydroPanel" class="w-full md:w-[480px] lg:w-[540px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col h-full transform translate-x-full md:translate-x-0 transition-transform duration-300 absolute right-0 top-0 bottom-0 z-[1001] shadow-2xl md:shadow-none">
+            
+            <!-- Empty State when nothing selected -->
+            <div id="emptyPanelState" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 dark:text-slate-500">
+                <div class="w-16 h-16 rounded-full bg-hydro-50 dark:bg-slate-800 flex items-center justify-center mb-4 text-hydro-500 text-2xl">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                </div>
+                <h3 class="text-base font-semibold text-slate-700 dark:text-slate-300">Aucun cours d'eau sélectionné</h3>
+                <p class="text-xs mt-1 max-w-xs">Cliquez sur un cours d'eau ou un bassin versant sur la carte pour afficher le bilan hydrologique et les prévisions.</p>
+            </div>
+
+            <!-- Panel Content (Hidden by default) -->
+            <div id="panelContent" class="hidden flex-1 flex flex-col h-full overflow-hidden">
+                <!-- Panel Header -->
+                <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between bg-slate-50/50 dark:bg-slate-900/50">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="badgeVigilance" class="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Vert</span>
+                            <span id="riverCode" class="text-xs font-mono text-slate-400">#BV-01</span>
+                        </div>
+                        <h2 id="riverName" class="text-xl font-bold text-slate-900 dark:text-slate-100 mt-1">La Seine</h2>
+                        <p id="basinName" class="text-xs text-slate-500 dark:text-slate-400">Bassin versant de la Seine Amont</p>
+                    </div>
+                    <button id="closePanel" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Panel Body Scrollable -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-6">
+                    
+                    <!-- Metrics Summary Grid -->
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                            <span class="text-[11px] font-medium text-slate-400 block">Débit Actuel</span>
+                            <div class="text-lg font-bold text-hydro-600 dark:text-hydro-400 mt-0.5"><span id="metricFlow">42.5</span> <span class="text-xs font-normal">m³/s</span></div>
+                        </div>
+                        <div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                            <span class="text-[11px] font-medium text-slate-400 block">Cumul 15j Pluie</span>
+                            <div class="text-lg font-bold text-blue-600 dark:text-blue-400 mt-0.5"><span id="metricRain">68.4</span> <span class="text-xs font-normal">mm</span></div>
+                        </div>
+                        <div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                            <span class="text-[11px] font-medium text-slate-400 block">Tendance 7j</span>
+                            <div class="text-lg font-bold text-emerald-500 mt-0.5 flex items-center space-x-1">
+                                <i id="metricTrendIcon" class="fa-solid fa-arrow-trend-up text-sm"></i>
+                                <span id="metricTrend" class="text-xs">Hausse</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chart 1: Historical Data (15 Days) -->
+                    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center space-x-2">
+                                <i class="fa-solid fa-clock-rotate-left text-hydro-500"></i>
+                                <span>Historique des 15 derniers jours</span>
+                            </h3>
+                            <span class="text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">Observé</span>
+                        </div>
+                        <div class="relative h-56">
+                            <canvas id="chartHistory"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Forecast Data (7 Days with uncertainty band) -->
+                    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center space-x-2">
+                                <i class="fa-solid fa-chart-line text-cyan-500"></i>
+                                <span>Prévisions à 7 Jours (Ensemble)</span>
+                            </h3>
+                            <span class="text-[10px] text-cyan-500 bg-cyan-50 dark:bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">Modélisation HydCast</span>
+                        </div>
+                        <div class="relative h-56">
+                            <canvas id="chartForecast"></canvas>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-2 flex items-center space-x-1">
+                            <i class="fa-solid fa-circle-info text-xs"></i>
+                            <span>La zone ombrée représente l'intervalle d'incertitude à 90% des modèles météo.</span>
+                        </p>
+                    </div>
+
+                    <!-- Hydrological context details -->
+                    <div class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-xs space-y-2">
+                        <h4 class="font-semibold text-slate-700 dark:text-slate-300">Caractéristiques du bassin</h4>
+                        <div class="grid grid-cols-2 gap-2 text-slate-600 dark:text-slate-400">
+                            <div>Superficie : <span id="basinArea" class="font-medium text-slate-800 dark:text-slate-200">1 240 km²</span></div>
+                            <div>Module moyen : <span id="basinMeanFlow" class="font-medium text-slate-800 dark:text-slate-200">28.5 m³/s</span></div>
+                            <div>Temps de réponse : <span id="basinResponse" class="font-medium text-slate-800 dark:text-slate-200">12h</span></div>
+                            <div>Seuil Alerte Crue : <span id="basinAlert" class="font-medium text-slate-800 dark:text-slate-200">75 m³/s</span></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Main Logic Script -->
+    <script>
+        // --- MOCK HYDROLOGICAL DATA GENERATOR ---
+        const RIVERS_DATA = [
+            {
+                id: "RIV-01",
+                name: "La Seine (Amont)",
+                basinName: "Bassin Haute-Seine",
+                vigilance: "vert",
+                area: "3 450 km²",
+                meanFlow: "45.0 m³/s",
+                alertThreshold: 90,
+                latlngs: [[48.1, 4.3], [48.3, 4.1], [48.5, 3.8], [48.6, 3.2], [48.8, 2.4]],
+                polygon: [[47.9, 4.5], [48.4, 4.4], [48.7, 3.9], [48.9, 2.8], [48.5, 2.2], [48.0, 3.5]],
+                currentFlow: 42.5,
+                cumulRain: 54.2,
+                trend: "Hausse",
+                history: generateTimeSeries(15, 30, 60, 0, 15),
+                forecast: generateForecastSeries(7, 45, 75, 5, 25)
+            },
+            {
+                id: "RIV-02",
+                name: "La Marne",
+                basinName: "Bassin de la Marne-Champagne",
+                vigilance: "jaune",
+                area: "12 920 km²",
+                meanFlow: "110.0 m³/s",
+                alertThreshold: 180,
+                latlngs: [[48.0, 5.2], [48.6, 4.8], [48.9, 4.3], [49.0, 3.6], [48.8, 2.6]],
+                polygon: [[47.8, 5.5], [48.8, 5.1], [49.2, 4.5], [49.2, 3.4], [48.6, 2.8]],
+                currentFlow: 145.2,
+                cumulRain: 88.0,
+                trend: "Hausse rapide",
+                history: generateTimeSeries(15, 80, 150, 2, 30),
+                forecast: generateForecastSeries(7, 145, 210, 10, 45)
+            },
+            {
+                id: "RIV-03",
+                name: "La Meuse",
+                basinName: "Bassin Meuse Ardennes",
+                vigilance: "orange",
+                area: "8 840 km²",
+                meanFlow: "140.0 m³/s",
+                alertThreshold: 250,
+                latlngs: [[48.0, 5.6], [48.7, 5.5], [49.3, 5.3], [49.8, 4.7]],
+                polygon: [[47.8, 5.8], [48.8, 5.9], [49.6, 5.6], [50.0, 4.5], [49.0, 4.8]],
+                currentFlow: 235.0,
+                cumulRain: 112.5,
+                trend: "Pic imminent",
+                history: generateTimeSeries(15, 100, 240, 5, 40),
+                forecast: generateForecastSeries(7, 235, 290, 15, 50)
+            },
+            {
+                id: "RIV-04",
+                name: "L'Yonne",
+                basinName: "Bassin Nivernais-Yonne",
+                vigilance: "rouge",
+                area: "10 830 km²",
+                meanFlow: "92.0 m³/s",
+                alertThreshold: 160,
+                latlngs: [[47.1, 4.0], [47.5, 3.7], [48.0, 3.5], [48.3, 3.0]],
+                polygon: [[46.9, 4.2], [47.6, 4.1], [48.2, 3.8], [48.4, 2.8], [47.2, 3.2]],
+                currentFlow: 185.4,
+                cumulRain: 142.0,
+                trend: "Crue majeure",
+                history: generateTimeSeries(15, 70, 190, 8, 50),
+                forecast: generateForecastSeries(7, 185, 240, 20, 60)
+            },
+            {
+                id: "RIV-05",
+                name: "La Loire (Haut Bassin)",
+                basinName: "Bassin Loire Amont",
+                vigilance: "vert",
+                area: "15 200 km²",
+                meanFlow: "160.0 m³/s",
+                alertThreshold: 300,
+                latlngs: [[44.8, 3.9], [45.4, 4.0], [46.0, 3.5], [46.3, 2.6], [47.1, 2.3]],
+                polygon: [[44.5, 4.2], [45.5, 4.5], [46.4, 3.8], [46.8, 2.2], [45.2, 3.0]],
+                currentFlow: 120.0,
+                cumulRain: 35.0,
+                trend: "Baisse",
+                history: generateTimeSeries(15, 110, 150, 0, 10),
+                forecast: generateForecastSeries(7, 120, 105, 0, 10)
+            }
+        ];
+
+        // Helper: Generate historical days and data
+        function generateTimeSeries(days, baseFlow, maxFlow, minRain, maxRain) {
+            const labels = [];
+            const flow = [];
+            const rain = [];
+            const now = new Date();
+
+            for (let i = days - 1; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                labels.push(d.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }));
+
+                // Random variation with pseudo trend
+                const r = Math.random() < 0.4 ? 0 : Math.round((Math.random() * (maxRain - minRain) + minRain) * 10) / 10;
+                rain.push(r);
+
+                const f = Math.round((baseFlow + (Math.sin(i / 2) * (maxFlow - baseFlow) / 2) + (r * 1.5)) * 10) / 10;
+                flow.push(f);
+            }
+            return { labels, flow, rain };
+        }
+
+        // Helper: Generate forecast days and interval confidence
+        function generateForecastSeries(days, currentFlow, peakForecast, minRain, maxRain) {
+            const labels = [];
+            const flowMean = [];
+            const flowMin = [];
+            const flowMax = [];
+            const rain = [];
+            const now = new Date();
+
+            for (let i = 1; i <= days; i++) {
+                const d = new Date(now);
+                d.setDate(d.getDate() + i);
+                labels.push(d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }));
+
+                const r = Math.random() < 0.3 ? 0 : Math.round((Math.random() * (maxRain - minRain)) * 10) / 10;
+                rain.push(r);
+
+                // Trend toward peak
+                const progress = i / days;
+                const mean = Math.round((currentFlow + (peakForecast - currentFlow) * Math.sin(progress * Math.PI)) * 10) / 10;
+                const spread = 5 + i * 4; // Uncertainty grows over time
+
+                flowMean.push(mean);
+                flowMin.push(Math.max(0, Math.round((mean - spread) * 10) / 10));
+                flowMax.push(Math.round((mean + spread) * 10) / 10);
+            }
+            return { labels, flowMean, flowMin, flowMax, rain };
+        }
+
+        // --- MAP INITIALIZATION ---
+        const map = L.map('map', {
+            zoomControl: false
+        }).setView([47.8, 3.8], 7);
+
+        // Add Zoom Control to Top-Left
+        L.control.zoom({ position: 'topleft' }).addTo(map);
+
+        // Base Tile Layer
+        const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors | HydCast Hydro',
+            maxZoom: 18
+        }).addTo(map);
+
+        // Color mapper for Vigilance
+        const vigilanceColors = {
+            vert: '#10b981',
+            jaune: '#f59e0b',
+            orange: '#f97316',
+            rouge: '#ef4444'
+        };
+
+        let mapLayers = [];
+        let selectedRiverId = null;
+
+        // Render Features on Map
+        function renderMapFeatures(filterColor = 'all', searchQuery = '') {
+            // Clear existing
+            mapLayers.forEach(l => map.removeLayer(l));
+            mapLayers = [];
+
+            RIVERS_DATA.forEach(river => {
+                // Filter matching
+                if (filterColor !== 'all' && river.vigilance !== filterColor) return;
+                if (searchQuery && !river.name.toLowerCase().includes(searchQuery.toLowerCase()) && !river.basinName.toLowerCase().includes(searchQuery.toLowerCase())) return;
+
+                const color = vigilanceColors[river.vigilance] || '#0ea5e9';
+
+                // Basin Polygon
+                const polygonLayer = L.polygon(river.polygon, {
+                    color: color,
+                    weight: 1.5,
+                    dashArray: '4, 4',
+                    fillColor: color,
+                    fillOpacity: 0.12
+                }).addTo(map);
+
+                // River Line
+                const lineLayer = L.polyline(river.latlngs, {
+                    color: color,
+                    weight: 5,
+                    opacity: 0.85,
+                    lineCap: 'round'
+                }).addTo(map);
+
+                // Tooltip
+                lineLayer.bindTooltip(`<b>${river.name}</b><br>Débit: ${river.currentFlow} m³/s`, { sticky: true });
+
+                // Click Listeners
+                const onClick = () => selectRiver(river.id);
+                polygonLayer.on('click', onClick);
+                lineLayer.on('click', onClick);
+
+                mapLayers.push(polygonLayer, lineLayer);
+            });
+        }
+
+        // --- CHART INSTANCES ---
+        let historyChart = null;
+        let forecastChart = null;
+
+        function updateCharts(river) {
+            const isDark = document.documentElement.classList.contains('dark');
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+            const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+            // Destroy existing charts
+            if (historyChart) historyChart.destroy();
+            if (forecastChart) forecastChart.destroy();
+
+            // 1. History Chart
+            const ctxHist = document.getElementById('chartHistory').getContext('2d');
+            historyChart = new Chart(ctxHist, {
+                type: 'bar',
+                data: {
+                    labels: river.history.labels,
+                    datasets: [
+                        {
+                            type: 'line',
+                            label: 'Débit (m³/s)',
+                            data: river.history.flow,
+                            borderColor: '#0ea5e9',
+                            backgroundColor: 'rgba(14, 165, 233, 0.1)',
+                            borderWidth: 2.5,
+                            tension: 0.3,
+                            yAxisID: 'yFlow',
+                            pointRadius: 2
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Pluie (mm)',
+                            data: river.history.rain,
+                            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                            borderCategoryPercentage: 0.5,
+                            yAxisID: 'yRain'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: textColor, font: { size: 11 } } }
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor, font: { size: 10 } }, grid: { display: false } },
+                        yFlow: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: 'm³/s', color: textColor },
+                            ticks: { color: textColor, font: { size: 10 } },
+                            grid: { color: gridColor }
+                        },
+                        yRain: {
+                            type: 'linear',
+                            position: 'right',
+                            reverse: true, // Rain upside down standard hydro
+                            title: { display: true, text: 'mm', color: textColor },
+                            ticks: { color: textColor, font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // 2. Forecast Chart (With uncertainty band)
+            const ctxFore = document.getElementById('chartForecast').getContext('2d');
+            forecastChart = new Chart(ctxFore, {
+                type: 'line',
+                data: {
+                    labels: river.forecast.labels,
+                    datasets: [
+                        {
+                            label: 'Prévision Max',
+                            data: river.forecast.flowMax,
+                            borderColor: 'transparent',
+                            backgroundColor: 'rgba(6, 182, 212, 0.15)',
+                            pointRadius: 0,
+                            fill: '+1' // Fill down to Min
+                        },
+                        {
+                            label: 'Prévision Min',
+                            data: river.forecast.flowMin,
+                            borderColor: 'transparent',
+                            backgroundColor: 'transparent',
+                            pointRadius: 0,
+                            fill: false
+                        },
+                        {
+                            label: 'Débit Médian (m³/s)',
+                            data: river.forecast.flowMean,
+                            borderColor: '#06b6d4',
+                            borderWidth: 2.5,
+                            borderDash: [4, 4],
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            tension: 0.3,
+                            pointRadius: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: textColor,
+                                font: { size: 11 },
+                                filter: item => item.text.includes('Médian') // Only show main line in legend
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor, font: { size: 10 } }, grid: { display: false } },
+                        y: {
+                            ticks: { color: textColor, font: { size: 10 } },
+                            grid: { color: gridColor },
+                            title: { display: true, text: 'm³/s', color: textColor }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- SELECTION & PANEL HANDLERS ---
+        function selectRiver(id) {
+            const river = RIVERS_DATA.find(r => r.id === id);
+            if (!river) return;
+
+            selectedRiverId = id;
+
+            // UI Text Binding
+            document.getElementById('riverName').innerText = river.name;
+            document.getElementById('basinName').innerText = river.basinName;
+            document.getElementById('riverCode').innerText = `#${river.id}`;
+            document.getElementById('metricFlow').innerText = river.currentFlow;
+            document.getElementById('metricRain').innerText = river.cumulRain;
+            document.getElementById('metricTrend').innerText = river.trend;
+
+            document.getElementById('basinArea').innerText = river.area;
+            document.getElementById('basinMeanFlow').innerText = river.meanFlow;
+            document.getElementById('basinAlert').innerText = `${river.alertThreshold} m³/s`;
+
+            // Badge Vigilance styling
+            const badge = document.getElementById('badgeVigilance');
+            badge.innerText = river.vigilance.toUpperCase();
+            badge.className = `px-2 py-0.5 text-xs font-bold rounded-full `;
+            
+            if (river.vigilance === 'vert') badge.classList.add('bg-emerald-100', 'text-emerald-800', 'dark:bg-emerald-950', 'dark:text-emerald-300');
+            else if (river.vigilance === 'jaune') badge.classList.add('bg-amber-100', 'text-amber-800', 'dark:bg-amber-950', 'dark:text-amber-300');
+            else if (river.vigilance === 'orange') badge.classList.add('bg-orange-100', 'text-orange-800', 'dark:bg-orange-950', 'dark:text-orange-300');
+            else if (river.vigilance === 'rouge') badge.classList.add('bg-red-100', 'text-red-800', 'dark:bg-red-950', 'dark:text-red-300');
+
+            // Toggle Panel Visibility
+            document.getElementById('emptyPanelState').classList.add('hidden');
+            document.getElementById('panelContent').classList.remove('hidden');
+
+            // Open Mobile panel if hidden
+            const panel = document.getElementById('hydroPanel');
+            panel.classList.remove('translate-x-full');
+
+            // Update Charts
+            updateCharts(river);
+        }
+
+        // --- INTERACTION EVENT LISTENERS ---
+        document.getElementById('closePanel').addEventListener('click', () => {
+            document.getElementById('hydroPanel').classList.add('translate-x-full');
+        });
+
+        // Search Input
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            renderMapFeatures(document.getElementById('filterVigilance').value, e.target.value);
+        });
+
+        // Filter Vigilance
+        document.getElementById('filterVigilance').addEventListener('change', (e) => {
+            renderMapFeatures(e.target.value, document.getElementById('searchInput').value);
+        });
+
+        // Dark/Light Theme Toggle
+        document.getElementById('toggleTheme').addEventListener('click', () => {
+            const html = document.documentElement;
+            html.classList.toggle('dark');
+            
+            // Refresh chart themes
+            if (selectedRiverId) {
+                const river = RIVERS_DATA.find(r => r.id === selectedRiverId);
+                if (river) updateCharts(river);
+            }
+        });
+
+        // Data Export (CSV)
+        document.getElementById('exportData').addEventListener('click', () => {
+            if (!selectedRiverId) {
+                alert("Veuillez d'abord sélectionner un cours d'eau à exporter.");
+                return;
+            }
+            const river = RIVERS_DATA.find(r => r.id === selectedRiverId);
+            
+            let csvContent = "data:text/csv;charset=utf-8,Date,Type,Debit_m3s,Pluie_mm\n";
+            
+            river.history.labels.forEach((date, i) => {
+                csvContent += `${date},Historique,${river.history.flow[i]},${river.history.rain[i]}\n`;
+            });
+            river.forecast.labels.forEach((date, i) => {
+                csvContent += `${date},Prevision,${river.forecast.flowMean[i]},${river.forecast.rain[i]}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `hydcast_${river.name.toLowerCase().replace(/\s+/g, '_')}_export.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // --- INITIALIZATION ---
+        window.onload = function () {
+            renderMapFeatures();
+            
+            // Auto-select first river for demonstration
+            setTimeout(() => {
+                selectRiver("RIV-01");
+            }, 500);
+        };
+    </script>
+</body>
+</html>
+```
