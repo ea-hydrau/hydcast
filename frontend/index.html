@@ -1,30 +1,194 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>HydCast - Cartographie & Hydrologie</title>
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; }
-        #map { flex: 2; height: 100%; }
-        #sidebar { flex: 1; padding: 20px; box-sizing: border-box; overflow-y: auto; background: #f8f9fa; border-left: 1px solid #ccc; }
-        canvas { max-width: 100%; margin-top: 20px; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HydCast — Cours d'eau &amp; bassins versants</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --panel:#ffffff; --accent:#2563eb; }
+  * { box-sizing: border-box; margin:0; }
+  html, body { height:100%; font-family: system-ui, sans-serif; }
+  #map { position:absolute; inset:0; }
+  #panel {
+    position:absolute; top:12px; right:12px; bottom:12px; width:420px;
+    background:var(--panel); border-radius:14px; padding:18px;
+    box-shadow:0 10px 40px rgba(0,0,0,.25); overflow-y:auto;
+    display:none; z-index:1000;
+  }
+  #panel h2 { font-size:17px; margin-bottom:2px; }
+  #panel .meta { color:#64748b; font-size:12.5px; margin-bottom:12px; }
+  #panel .close { float:right; cursor:pointer; border:none; background:#f1f5f9;
+    border-radius:8px; padding:4px 10px; font-size:14px; }
+  .chart-box { margin-bottom:16px; }
+  .chart-box h3 { font-size:13px; color:#334155; margin-bottom:6px; }
+  .legend { display:flex; gap:12px; font-size:11.5px; color:#475569; margin-top:4px; }
+  .legend span i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
+  .disclaimer { font-size:11px; color:#b45309; background:#fffbeb; border:1px solid #fde68a;
+    padding:6px 8px; border-radius:8px; margin-top:4px; }
+  #loading { text-align:center; color:#64748b; padding:30px 0; font-size:13px; }
+  .spinner { display:inline-block; width:22px; height:22px; border:3px solid #dbeafe;
+    border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #legend-map { position:absolute; bottom:20px; left:20px; z-index:1000; background:#fff;
+    padding:10px 12px; border-radius:10px; box-shadow:0 4px 18px rgba(0,0,0,.2); font-size:12.5px; }
+  #legend-map .row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  .sw { display:inline-block; width:14px; height:14px; border-radius:3px; }
+</style>
 </head>
 <body>
-
-    <div id="map"></div>
-    <div id="sidebar">
-        <h2>HydCast</h2>
-        <p>Cliquez sur un bassin versant sur la carte pour afficher l'historique et les prévisions de pluie.</p>
-        <div id="info"></div>
-        <canvas id="rainChart"></canvas>
+<div id="map"></div>
+<div id="legend-map">
+  <div class="row"><span class="sw" style="background:#93c5fd; border:1px solid #3b82f6"></span> Bassin versant</div>
+  <div class="row"><span class="sw" style="background:#1d4ed8; height:3px"></span> Cours d'eau (cliquer)</div>
+  <div class="row"><span class="sw" style="background:#dc2626; border-radius:50%"></span> Station hydrométrique</div>
+</div>
+<div id="panel">
+  <button class="close" onclick="closePanel()">✕</button>
+  <h2 id="p-title">—</h2>
+  <div class="meta" id="p-meta"></div>
+  <div id="loading"><span class="spinner"></span><br><br>Chargement des données…</div>
+  <div id="content" style="display:none">
+    <div class="chart-box">
+      <h3>Pluie (mm/j) — 15 derniers jours + prévision</h3>
+      <canvas id="rain-chart" height="130"></canvas>
+      <div class="legend">
+        <span><i style="background:#2563eb"></i>Pluie observée</span>
+        <span><i style="background:#93c5fd"></i>Pluie prévue</span>
+      </div>
     </div>
+    <div class="chart-box">
+      <h3>Débit (m³/s) — observé + prévision GR4J</h3>
+      <canvas id="flow-chart" height="150"></canvas>
+      <div class="legend">
+        <span><i style="background:#0f766e"></i>Débit observé (Hub'Eau)</span>
+        <span><i style="background:#ea580c"></i>Prévision GR4J</span>
+      </div>
+    </div>
+    <div class="disclaimer" id="p-disclaimer"></div>
+  </div>
+</div>
 
-    <!-- Leaflet JS & Chart.js -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="app.js"></script>
+<script>
+const API = new URLSearchParams(location.search).get('api') || 'http://localhost:8000';
+const PAST_DAYS = 15;
+
+const map = L.map('map').setView([48.55, 3.3], 7.5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18
+}).addTo(map);
+
+let rainChart = null, flowChart = null;
+
+function closePanel() {
+  document.getElementById('panel').style.display = 'none';
+}
+function openPanel(title, meta) {
+  document.getElementById('p-title').textContent = title;
+  document.getElementById('p-meta').textContent = meta || '';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('content').style.display = 'none';
+  document.getElementById('panel').style.display = 'block';
+}
+
+function showCharts(data) {
+  const past = data.past_days, dates = data.dates;
+  // Axe X : `past` jours d'historique + prévision
+  const labels = dates.slice(0, past).map(short)
+    .concat(data.flow.forecast.map(f => short(f.date)));
+
+  const rainObs = pad(data.rain.observed, past, 0);
+  const rainFcst = pad([], past, 0).concat(data.rain.forecast);
+
+  const obsMap = {};
+  (data.flow.observed || []).forEach(o => obsMap[o.date] = o.q_m3s);
+  const flowObs = dates.slice(0, past).map(d => obsMap[d] ?? null);
+  const lastObs = [...flowObs].reverse().find(v => v !== null && v !== undefined);
+  const flowFcst = pad([], past, null).concat(
+    data.flow.forecast.map(f => f.q_m3s));
+  if (lastObs !== undefined) flowFcst[past - 1] = lastObs; // raccord obs->prévision
+
+  if (rainChart) rainChart.destroy();
+  if (flowChart) flowChart.destroy();
+
+  rainChart = new Chart(document.getElementById('rain-chart'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Pluie observée', data: rainObs, backgroundColor: '#2563eb' },
+      { label: 'Pluie prévue', data: rainFcst, backgroundColor: '#93c5fd' }
+    ]},
+    options: { plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'mm/j' } } } }
+  });
+
+  flowChart = new Chart(document.getElementById('flow-chart'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Débit observé', data: flowObs, borderColor: '#0f766e',
+        backgroundColor: '#0f766e22', fill: true, pointRadius: 1.5,
+        spanGaps: true },
+      { label: 'Prévision GR4J', data: flowFcst, borderColor: '#ea580c',
+        borderDash: [6, 4], pointRadius: 1.5 }
+    ]},
+    options: { plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'm³/s' } } } }
+  });
+
+  document.getElementById('p-disclaimer').textContent = data.disclaimer || '';
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+}
+
+function short(d) { return d ? d.slice(5) : ''; }
+function pad(arr, n, v) { const out = arr.slice(0, n).concat(Array(Math.max(0, n - arr.length)).fill(v)); return out; }
+
+async function loadStation(code, title, meta) {
+  openPanel(title, meta);
+  try {
+    const r = await fetch(`${API}/api/hydro/${code}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    showCharts(await r.json());
+  } catch (e) {
+    document.getElementById('loading').innerHTML =
+      '❌ Erreur de chargement (' + e.message + ').<br>Vérifiez que l\'API est démarrée.';
+  }
+}
+
+// --- Couches ---
+fetch(`${API}/api/watersheds`).then(r => r.json()).then(g => {
+  L.geoJSON(g, {
+    style: { color: '#3b82f6', weight: 1.5, fillColor: '#93c5fd', fillOpacity: 0.15 },
+    onEachFeature: (f, layer) => layer.bindTooltip(f.properties.nom)
+  }).addTo(map);
+});
+
+fetch(`${API}/api/rivers`).then(r => r.json()).then(g => {
+  L.geoJSON(g, {
+    style: { color: '#1d4ed8', weight: 3, opacity: 0.75 },
+    onEachFeature: (f, layer) => {
+      const st = f.properties.station_exutoire;
+      layer.bindTooltip(f.properties.nom, { sticky: true });
+      layer.on('click', () => loadStation(st, f.properties.nom,
+        'Exutoire : ' + st + ' — cliquez sur les données'));
+    }
+  }).addTo(map);
+});
+
+fetch(`${API}/api/stations`).then(r => r.json()).then(g => {
+  L.geoJSON(g, {
+    pointToLayer: (_, latlng) =>
+      L.circleMarker(latlng, { radius: 7, color: '#fff', weight: 2,
+        fillColor: '#dc2626', fillOpacity: 1 }),
+    onEachFeature: (f, layer) => {
+      const p = f.properties;
+      layer.bindTooltip(p.nom, { sticky: true });
+      layer.on('click', () => loadStation(p.code, p.nom,
+        `Station Hub'Eau ${p.code} · bassin ≈ ${p.area_km2.toLocaleString('fr')} km²`));
+    }
+  }).addTo(map);
+});
+</script>
 </body>
 </html>
