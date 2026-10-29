@@ -75,6 +75,9 @@ python -m http.server 3000 --directory frontend
 - [ ] Prévision d'ensemble (météo ensembliste Open-Meteo / ECMWF) avec bande d'incertitude
 - [ ] Seuils de vigilance Vigicrues sur les graphiques
 
+## Limites actuelles
+Limites actuelles (assumées pour le pilote) : surfaces de bassin indicatives à affiner, GR4J non calé (prévision indicative, signalé dans l'UI), géométries simplifiées. Prochaines étapes logiques : calage automatique par station sur l'historique Hub'Eau, puis bascule des couches vers PostGIS. Dites-moi si vous voulez que je vous prépare aussi le Dockerfile du backend ou le script de calage.
+
 ## Licence
 
 GPL-3.0
