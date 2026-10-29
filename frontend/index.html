@@ -52,19 +52,22 @@
   <div id="loading"><span class="spinner"></span><br><br>Chargement des données…</div>
   <div id="content" style="display:none">
     <div class="chart-box">
-      <h3>Pluie (mm/j) — 15 derniers jours + prévision</h3>
+      <h3>Pluie (mm/j) — 15 derniers jours + prévision d'ensemble</h3>
       <canvas id="rain-chart" height="130"></canvas>
       <div class="legend">
         <span><i style="background:#2563eb"></i>Pluie observée</span>
-        <span><i style="background:#93c5fd"></i>Pluie prévue</span>
+        <span><i style="background:#93c5fd"></i>Prévue (médiane 51 membres)</span>
+        <span><i style="background:rgba(147,197,253,0.5)"></i>Intervalle q10–q90</span>
       </div>
     </div>
     <div class="chart-box">
-      <h3>Débit (m³/s) — observé + prévision GR4J</h3>
+      <h3>Débit (m³/s) — observé + prévision GR4J (ensemble ECMWF)</h3>
       <canvas id="flow-chart" height="150"></canvas>
       <div class="legend">
         <span><i style="background:#0f766e"></i>Débit observé (Hub'Eau)</span>
-        <span><i style="background:#ea580c"></i>Prévision GR4J</span>
+        <span><i style="background:#ea580c"></i>Médiane GR4J</span>
+        <span><i style="background:rgba(234,88,12,0.15)"></i>q10–q90</span>
+        <span><i style="background:rgba(234,88,12,0.35)"></i>q25–q75</span>
       </div>
     </div>
     <div class="disclaimer" id="p-disclaimer"></div>
@@ -100,15 +103,33 @@ function showCharts(data) {
     .concat(data.flow.forecast.map(f => short(f.date)));
 
   const rainObs = pad(data.rain.observed, past, 0);
-  const rainFcst = pad([], past, 0).concat(data.rain.forecast);
+  const rEns = data.rain.ensemble;
+  const rainFcst = pad([], past, 0)
+    .concat(rEns ? rEns.map(f => f.q50) : data.rain.forecast);
 
   const obsMap = {};
   (data.flow.observed || []).forEach(o => obsMap[o.date] = o.q_m3s);
   const flowObs = dates.slice(0, past).map(d => obsMap[d] ?? null);
+  const ens = data.flow.ensemble;
   const lastObs = [...flowObs].reverse().find(v => v !== null && v !== undefined);
   const flowFcst = pad([], past, null).concat(
-    data.flow.forecast.map(f => f.q_m3s));
+    (ens || data.flow.forecast).map(f => f.q50 ?? f.q_m3s));
   if (lastObs !== undefined) flowFcst[past - 1] = lastObs; // raccord obs->prévision
+
+  // Bandes d'incertitude (ensemble ECMWF -> GR4J)
+  const padNull = pad([], past, null);
+  const ensQ10 = ens ? padNull.concat(ens.map(f => f.q10)) : null;
+  const ensQ25 = ens ? padNull.concat(ens.map(f => f.q25)) : null;
+  const ensQ50 = ens ? padNull.concat(ens.map(f => f.q50)) : null;
+  const ensQ75 = ens ? padNull.concat(ens.map(f => f.q75)) : null;
+  const ensQ90 = ens ? padNull.concat(ens.map(f => f.q90)) : null;
+  if (ens && lastObs !== undefined) {  // raccord des bandes au dernier débit observé
+    [ensQ10, ensQ25, ensQ50, ensQ75, ensQ90].forEach(a => a[past - 1] = lastObs);
+  }
+
+  // Pluie : bande d'incertitude de la prévision
+  const rainQ10 = rEns ? padNull.concat(rEns.map(f => f.q10)) : null;
+  const rainQ90 = rEns ? padNull.concat(rEns.map(f => f.q90)) : null;
 
   if (rainChart) rainChart.destroy();
   if (flowChart) flowChart.destroy();
@@ -117,21 +138,39 @@ function showCharts(data) {
     type: 'bar',
     data: { labels, datasets: [
       { label: 'Pluie observée', data: rainObs, backgroundColor: '#2563eb' },
-      { label: 'Pluie prévue', data: rainFcst, backgroundColor: '#93c5fd' }
-    ]},
+      { label: 'Pluie prévue (médiane)', data: rainFcst, backgroundColor: '#93c5fd' }
+    ].concat(rainQ90 ? [
+      { type: 'line', label: 'q90', data: rainQ90, borderColor: '#93c5fd',
+        borderWidth: 0, pointRadius: 0, fill: '+1',
+        backgroundColor: 'rgba(147,197,253,0.28)' },
+      { type: 'line', label: 'q10', data: rainQ10, borderColor: '#93c5fd',
+        borderWidth: 0, pointRadius: 0 }
+    ] : []) },
     options: { plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, title: { display: true, text: 'mm/j' } } } }
   });
 
   flowChart = new Chart(document.getElementById('flow-chart'), {
     type: 'line',
-    data: { labels, datasets: [
+    data: { labels, datasets: (ensQ90 ? [
+      { label: 'q90', data: ensQ90, borderColor: 'transparent',
+        borderWidth: 0, pointRadius: 0, fill: '+1',
+        backgroundColor: 'rgba(234,88,12,0.15)' },
+      { label: 'q10', data: ensQ10, borderColor: 'transparent',
+        borderWidth: 0, pointRadius: 0 },
+      { label: 'q75', data: ensQ75, borderColor: 'transparent',
+        borderWidth: 0, pointRadius: 0, fill: '+1',
+        backgroundColor: 'rgba(234,88,12,0.25)' },
+      { label: 'q25', data: ensQ25, borderColor: 'transparent',
+        borderWidth: 0, pointRadius: 0 }
+    ] : []).concat([
       { label: 'Débit observé', data: flowObs, borderColor: '#0f766e',
         backgroundColor: '#0f766e22', fill: true, pointRadius: 1.5,
         spanGaps: true },
-      { label: 'Prévision GR4J', data: flowFcst, borderColor: '#ea580c',
-        borderDash: [6, 4], pointRadius: 1.5 }
-    ]},
+      { label: ens ? 'Prévision GR4J (médiane ensemble)' : 'Prévision GR4J',
+        data: flowFcst, borderColor: '#ea580c', borderDash: [6, 4],
+        pointRadius: 1.5, borderWidth: 2 }
+    ]).filter(Boolean) },
     options: { plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, title: { display: true, text: 'm³/s' } } } }
   });
