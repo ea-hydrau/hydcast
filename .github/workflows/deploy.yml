@@ -1,0 +1,20 @@
+name: Deploy Frontend to GitHub Pages
+
+on:
+  push:
+    branches: [ main ] # Remplacez 'main' par votre branche principale si nécessaire
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Si votre frontend est un site HTML/CSS/JS simple sans étape de build (npm run build) :
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: frontend # Indique le dossier source à publier
