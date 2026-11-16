@@ -12,20 +12,37 @@
   * { box-sizing: border-box; margin:0; }
   html, body { height:100%; font-family: system-ui, sans-serif; }
   #map { position:absolute; inset:0; }
+  #selector-panel {
+    position:absolute; top:12px; left:12px; width:270px; padding:16px;
+    background:var(--panel); border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,.2);
+    z-index:1000;
+  }
+  #selector-panel h1 { font-size:18px; margin-bottom:14px; }
+  #selector-panel label { display:block; font-size:12px; font-weight:650; color:#475569; margin:12px 0 5px; }
+  #selector-panel select {
+    width:100%; padding:9px 10px; border:1px solid #cbd5e1; border-radius:8px;
+    background:#fff; color:#0f172a; font:inherit; font-size:13px;
+  }
+  #selector-panel select:disabled { background:#f1f5f9; color:#64748b; }
+  #selector-hint { color:#64748b; font-size:12px; line-height:1.4; margin-top:12px; }
   #panel {
-    position:absolute; top:12px; right:12px; bottom:12px; width:420px;
+    position:absolute; top:12px; right:12px; bottom:12px; width:min(720px, 58vw);
     background:var(--panel); border-radius:14px; padding:18px;
     box-shadow:0 10px 40px rgba(0,0,0,.25); overflow-y:auto;
     display:none; z-index:1000;
+  }
+  #panel-header {
+    display:grid; grid-template-columns:minmax(0, 1fr) 132px; gap:10px;
+    align-items:start; margin-bottom:12px;
   }
   #panel h2 { font-size:17px; margin-bottom:2px; }
   #panel .meta { color:#64748b; font-size:12.5px; margin-bottom:12px; }
   #panel .close { float:right; cursor:pointer; border:none; background:#f1f5f9;
     border-radius:8px; padding:4px 10px; font-size:14px; }
+  #station-map { width:132px; height:100px; border-radius:8px; overflow:hidden; background:#e2e8f0; }
   .chart-box { margin-bottom:16px; }
-  .chart-box h3 { font-size:13px; color:#334155; margin-bottom:6px; }
-  .legend { display:flex; gap:12px; font-size:11.5px; color:#475569; margin-top:4px; }
-  .legend span i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
+  .chart-box h3 { font-size:16px; font-weight:500; color:#334155; margin-bottom:4px; }
+  .chart-plot { height:340px; }
   .disclaimer { font-size:11px; color:#b45309; background:#fffbeb; border:1px solid #fde68a;
     padding:6px 8px; border-radius:8px; margin-top:4px; }
   #loading { text-align:center; color:#64748b; padding:30px 0; font-size:13px; }
@@ -36,39 +53,59 @@
     padding:10px 12px; border-radius:10px; box-shadow:0 4px 18px rgba(0,0,0,.2); font-size:12.5px; }
   #legend-map .row { display:flex; align-items:center; gap:6px; margin:3px 0; }
   .sw { display:inline-block; width:14px; height:14px; border-radius:3px; }
+  @media (max-width:900px) {
+    #selector-panel { width:240px; padding:14px; }
+    #panel { width:min(480px, 56vw); padding:14px; }
+    #panel-header { grid-template-columns:minmax(0, 1fr) 112px; }
+    #station-map { width:112px; height:88px; }
+  }
+  @media (max-width:680px) {
+    #selector-panel { top:8px; left:8px; right:8px; width:auto; padding:12px; }
+    #selector-panel h1 { margin-bottom:8px; }
+    #selector-panel label { display:inline-block; margin:6px 6px 4px 0; }
+    #selector-panel select { width:calc(50% - 5px); }
+    #selector-panel #basin-select { margin-right:6px; }
+    #selector-hint { margin-top:7px; }
+    #panel { top:auto; left:8px; right:8px; bottom:8px; width:auto; height:45vh; padding:12px; }
+    #panel-header { grid-template-columns:minmax(0, 1fr) 100px; gap:8px; }
+    #station-map { width:100px; height:78px; }
+    .chart-plot { height:280px; }
+    #legend-map { bottom:calc(45vh + 16px); left:8px; }
+  }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<aside id="selector-panel" aria-label="Sélection du bassin et de la station">
+  <h1>HydCast</h1>
+  <label for="basin-select">Bassin versant</label>
+  <select id="basin-select" disabled>
+    <option value="">Chargement des bassins…</option>
+  </select>
+  <label for="station-select">Station hydrométrique</label>
+  <select id="station-select" disabled>
+    <option value="">Sélectionnez un bassin</option>
+  </select>
+  <p id="selector-hint">Choisissez un bassin pour afficher ses stations.</p>
+</aside>
 <div id="legend-map">
   <div class="row"><span class="sw" style="background:#93c5fd; border:1px solid #3b82f6"></span> Bassin versant</div>
-  <div class="row"><span class="sw" style="background:#1d4ed8; height:3px"></span> Cours d'eau (cliquer)</div>
   <div class="row"><span class="sw" style="background:#dc2626; border-radius:50%"></span> Station hydrométrique</div>
 </div>
 <div id="panel">
-  <button class="close" onclick="closePanel()">✕</button>
-  <h2 id="p-title">—</h2>
-  <div class="meta" id="p-meta"></div>
+  <div id="panel-header">
+    <div>
+      <button class="close" onclick="closePanel()" aria-label="Fermer">✕</button>
+      <h2 id="p-title">—</h2>
+      <div class="meta" id="p-meta"></div>
+    </div>
+    <div id="station-map" role="img" aria-label="Mini-carte du bassin et de la station"></div>
+  </div>
   <div id="loading"><span class="spinner"></span><br><br>Chargement des données…</div>
   <div id="content" style="display:none">
     <div class="chart-box">
-      <h3>Pluie (mm/j) — 15 derniers jours + prévision d'ensemble</h3>
-      <canvas id="rain-chart" height="130"></canvas>
-      <div class="legend">
-        <span><i style="background:#2563eb"></i>Pluie observée</span>
-        <span><i style="background:#93c5fd"></i>Prévue (médiane 51 membres)</span>
-        <span><i style="background:rgba(147,197,253,0.5)"></i>Intervalle q10–q90</span>
-      </div>
-    </div>
-    <div class="chart-box">
-      <h3>Débit (m³/s) — observé + prévision GR4J (ensemble ECMWF)</h3>
-      <canvas id="flow-chart" height="150"></canvas>
-      <div class="legend">
-        <span><i style="background:#0f766e"></i>Débit observé (Hub'Eau)</span>
-        <span><i style="background:#ea580c"></i>Médiane GR4J</span>
-        <span><i style="background:rgba(234,88,12,0.15)"></i>q10–q90</span>
-        <span><i style="background:rgba(234,88,12,0.35)"></i>q25–q75</span>
-      </div>
+      <h3 id="chart-title">Bassin versant</h3>
+      <div class="chart-plot"><canvas id="hydro-chart"></canvas></div>
     </div>
     <div class="disclaimer" id="p-disclaimer"></div>
   </div>
@@ -78,101 +115,270 @@
 const API = new URLSearchParams(location.search).get('api') || 'http://localhost:8000';
 const PAST_DAYS = 15;
 
-const map = L.map('map').setView([48.55, 3.3], 7.5);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18
+const map = L.map('map').setView([45.02, 4.62], 9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 18
 }).addTo(map);
 
-let rainChart = null, flowChart = null;
+let hydroChart = null;
+let hydroRequestId = 0;
+let watershedFeatures = [], stationFeatures = [];
+let selectedBasin = null;
+let stationMap = null, stationMapBasin = null, stationMapMarker = null;
+
+const basinSelect = document.getElementById('basin-select');
+const stationSelect = document.getElementById('station-select');
+const selectorHint = document.getElementById('selector-hint');
+const basinLayer = L.geoJSON(null, {
+  style: { color: '#3b82f6', weight: 1.5, fillColor: '#93c5fd', fillOpacity: 0.15 },
+  onEachFeature: (feature, layer) => layer.bindTooltip(feature.properties.nom)
+}).addTo(map);
+const stationsLayer = L.geoJSON(null, {
+  pointToLayer: (_, latlng) =>
+    L.circleMarker(latlng, { radius: 7, color: '#fff', weight: 2,
+      fillColor: '#dc2626', fillOpacity: 1 }),
+  onEachFeature: (feature, layer) => {
+    layer.bindTooltip(feature.properties.nom, { sticky: true });
+    layer.on('click', () => selectStation(feature.properties.code));
+  }
+}).addTo(map);
 
 function closePanel() {
+  hydroRequestId += 1;
   document.getElementById('panel').style.display = 'none';
 }
-function openPanel(title, meta) {
+function updateStationMap(stationFeature) {
+  if (!stationMap) {
+    stationMap = L.map('station-map', {
+      zoomControl: false, attributionControl: false, dragging: false,
+      scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false,
+      keyboard: false, touchZoom: false
+    }).setView([45.02, 4.62], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    }).addTo(stationMap);
+  }
+  if (stationMapBasin) stationMap.removeLayer(stationMapBasin);
+  if (stationMapMarker) stationMap.removeLayer(stationMapMarker);
+
+  stationMapBasin = L.geoJSON(selectedBasin, {
+    style: { color: '#2563eb', weight: 1.5, fillColor: '#93c5fd', fillOpacity: 0.25 }
+  }).addTo(stationMap);
+  const [lon, lat] = stationFeature.geometry.coordinates;
+  stationMapMarker = L.circleMarker([lat, lon], {
+    radius: 6, color: '#fff', weight: 2, fillColor: '#dc2626', fillOpacity: 1
+  }).addTo(stationMap);
+  const bounds = stationMapBasin.getBounds().extend([lat, lon]).pad(0.08);
+  stationMap.invalidateSize({ pan: false });
+  stationMap.fitBounds(bounds, { animate: false });
+}
+
+function openPanel(title, meta, stationFeature) {
   document.getElementById('p-title').textContent = title;
   document.getElementById('p-meta').textContent = meta || '';
   document.getElementById('loading').style.display = 'block';
   document.getElementById('content').style.display = 'none';
   document.getElementById('panel').style.display = 'block';
+  requestAnimationFrame(() => updateStationMap(stationFeature));
 }
 
 function showCharts(data) {
-  const past = data.past_days, dates = data.dates;
-  // Axe X : `past` jours d'historique + prévision
-  const labels = dates.slice(0, past).map(short)
-    .concat(data.flow.forecast.map(f => short(f.date)));
+  const past = data.past_days;
+  const dates = data.dates;
+  const futureDays = dates.length - past;
+  const labels = dates.map(formatDate);
+  const futureSeries = values => Array(past).fill(null).concat(values.slice(0, futureDays));
+  const rainEnsemble = data.rain.ensemble;
+  const flowEnsemble = data.flow.ensemble;
 
-  const rainObs = pad(data.rain.observed, past, 0);
-  const rEns = data.rain.ensemble;
-  const rainFcst = pad([], past, 0)
-    .concat(rEns ? rEns.map(f => f.q50) : data.rain.forecast);
+  const observedFlowByDate = new Map(
+    (data.flow.observed || []).map(observation => [observation.date, observation.q_m3s])
+  );
+  const flowObserved = dates.map((date, index) =>
+    index < past ? observedFlowByDate.get(date) ?? null : null);
 
-  const obsMap = {};
-  (data.flow.observed || []).forEach(o => obsMap[o.date] = o.q_m3s);
-  const flowObs = dates.slice(0, past).map(d => obsMap[d] ?? null);
-  const ens = data.flow.ensemble;
-  const lastObs = [...flowObs].reverse().find(v => v !== null && v !== undefined);
-  const flowFcst = pad([], past, null).concat(
-    (ens || data.flow.forecast).map(f => f.q50 ?? f.q_m3s));
-  if (lastObs !== undefined) flowFcst[past - 1] = lastObs; // raccord obs->prévision
+  const rainObserved = pad(data.rain.observed, past, null)
+    .concat(Array(futureDays).fill(null));
+  const rainMedian = futureSeries(
+    rainEnsemble ? rainEnsemble.map(day => day.q50) : data.rain.forecast
+  );
+  const flowMedian = futureSeries(
+    flowEnsemble
+      ? flowEnsemble.map(day => day.q50)
+      : data.flow.forecast.map(day => day.q_m3s)
+  );
 
-  // Bandes d'incertitude (ensemble ECMWF -> GR4J)
-  const padNull = pad([], past, null);
-  const ensQ10 = ens ? padNull.concat(ens.map(f => f.q10)) : null;
-  const ensQ25 = ens ? padNull.concat(ens.map(f => f.q25)) : null;
-  const ensQ50 = ens ? padNull.concat(ens.map(f => f.q50)) : null;
-  const ensQ75 = ens ? padNull.concat(ens.map(f => f.q75)) : null;
-  const ensQ90 = ens ? padNull.concat(ens.map(f => f.q90)) : null;
-  if (ens && lastObs !== undefined) {  // raccord des bandes au dernier débit observé
-    [ensQ10, ensQ25, ensQ50, ensQ75, ensQ90].forEach(a => a[past - 1] = lastObs);
+  const precipitationValues = [
+    ...(data.rain.observed || []),
+    ...(rainEnsemble
+      ? rainEnsemble.flatMap(day => [day.q10, day.q90])
+      : data.rain.forecast || []),
+  ].filter(Number.isFinite);
+  const precipitationMax = Math.max(
+    10,
+    Math.ceil(Math.max(0, ...precipitationValues) / 10) * 10
+  );
+
+  const datasets = [];
+  if (rainEnsemble) {
+    datasets.push({
+      type: 'bar', label: 'Précipitations prévues p10-p90',
+      data: futureSeries(rainEnsemble.map(day => [day.q10, day.q90])),
+      yAxisID: 'precipitation', backgroundColor: 'rgba(88, 145, 187, 0.28)',
+      borderWidth: 0, grouped: false, barThickness: 14, order: 8
+    });
   }
-
-  // Pluie : bande d'incertitude de la prévision
-  const rainQ10 = rEns ? padNull.concat(rEns.map(f => f.q10)) : null;
-  const rainQ90 = rEns ? padNull.concat(rEns.map(f => f.q90)) : null;
-
-  if (rainChart) rainChart.destroy();
-  if (flowChart) flowChart.destroy();
-
-  rainChart = new Chart(document.getElementById('rain-chart'), {
+  datasets.push({
+    type: 'bar', label: 'Précipitations observées',
+    data: rainObserved, yAxisID: 'precipitation',
+    backgroundColor: '#6f9fc3', borderWidth: 0,
+    grouped: false, barThickness: 12, order: 7
+  });
+  datasets.push({
     type: 'bar',
-    data: { labels, datasets: [
-      { label: 'Pluie observée', data: rainObs, backgroundColor: '#2563eb' },
-      { label: 'Pluie prévue (médiane)', data: rainFcst, backgroundColor: '#93c5fd' }
-    ].concat(rainQ90 ? [
-      { type: 'line', label: 'q90', data: rainQ90, borderColor: '#93c5fd',
-        borderWidth: 0, pointRadius: 0, fill: '+1',
-        backgroundColor: 'rgba(147,197,253,0.28)' },
-      { type: 'line', label: 'q10', data: rainQ10, borderColor: '#93c5fd',
-        borderWidth: 0, pointRadius: 0 }
-    ] : []) },
-    options: { plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'mm/j' } } } }
+    label: rainEnsemble ? 'Précipitations prévues p50' : 'Précipitations prévues',
+    data: rainMedian, yAxisID: 'precipitation',
+    backgroundColor: '#a9c5d9', borderWidth: 0,
+    grouped: false, barThickness: 7, order: 6
   });
 
-  flowChart = new Chart(document.getElementById('flow-chart'), {
+  if (flowEnsemble) {
+    datasets.push({
+      type: 'line', label: 'Débit prévu p10-p90',
+      data: futureSeries(flowEnsemble.map(day => day.q10)),
+      yAxisID: 'flow', borderColor: 'transparent',
+      backgroundColor: 'rgba(255, 170, 80, 0.28)',
+      pointRadius: 0, borderWidth: 0, fill: '+1', order: 5
+    });
+    datasets.push({
+      type: 'line', label: '',
+      data: futureSeries(flowEnsemble.map(day => day.q90)),
+      yAxisID: 'flow', borderColor: 'transparent',
+      pointRadius: 0, borderWidth: 0, fill: false, order: 5
+    });
+    datasets.push({
+      type: 'line', label: 'Débit prévu p25-p75',
+      data: futureSeries(flowEnsemble.map(day => day.q25)),
+      yAxisID: 'flow', borderColor: 'transparent',
+      backgroundColor: 'rgba(255, 170, 80, 0.5)',
+      pointRadius: 0, borderWidth: 0, fill: '+1', order: 4
+    });
+    datasets.push({
+      type: 'line', label: '',
+      data: futureSeries(flowEnsemble.map(day => day.q75)),
+      yAxisID: 'flow', borderColor: 'transparent',
+      pointRadius: 0, borderWidth: 0, fill: false, order: 4
+    });
+  }
+  datasets.push({
+    type: 'line', label: 'Débit observé (m³/s)',
+    data: flowObserved, yAxisID: 'flow',
+    borderColor: '#c62828', backgroundColor: '#c62828',
+    pointRadius: 2, pointHoverRadius: 4, borderWidth: 2,
+    spanGaps: true, fill: false, order: 1
+  });
+  datasets.push({
     type: 'line',
-    data: { labels, datasets: (ensQ90 ? [
-      { label: 'q90', data: ensQ90, borderColor: 'transparent',
-        borderWidth: 0, pointRadius: 0, fill: '+1',
-        backgroundColor: 'rgba(234,88,12,0.15)' },
-      { label: 'q10', data: ensQ10, borderColor: 'transparent',
-        borderWidth: 0, pointRadius: 0 },
-      { label: 'q75', data: ensQ75, borderColor: 'transparent',
-        borderWidth: 0, pointRadius: 0, fill: '+1',
-        backgroundColor: 'rgba(234,88,12,0.25)' },
-      { label: 'q25', data: ensQ25, borderColor: 'transparent',
-        borderWidth: 0, pointRadius: 0 }
-    ] : []).concat([
-      { label: 'Débit observé', data: flowObs, borderColor: '#0f766e',
-        backgroundColor: '#0f766e22', fill: true, pointRadius: 1.5,
-        spanGaps: true },
-      { label: ens ? 'Prévision GR4J (médiane ensemble)' : 'Prévision GR4J',
-        data: flowFcst, borderColor: '#ea580c', borderDash: [6, 4],
-        pointRadius: 1.5, borderWidth: 2 }
-    ]).filter(Boolean) },
-    options: { plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'm³/s' } } } }
+    label: flowEnsemble ? 'Débit prévu p50' : 'Débit prévu GR4J',
+    data: flowMedian, yAxisID: 'flow',
+    borderColor: '#f08a00', backgroundColor: '#f08a00',
+    pointRadius: 0, borderWidth: 2.5, fill: false, order: 0
+  });
+
+  const todayDivider = {
+    id: 'today-divider',
+    afterDraw(chart) {
+      if (past <= 0 || past >= dates.length) return;
+      const xScale = chart.scales.x;
+      const x = (xScale.getPixelForValue(past - 1) + xScale.getPixelForValue(past)) / 2;
+      const {top, bottom} = chart.chartArea;
+      const context = chart.ctx;
+      context.save();
+      context.strokeStyle = '#7b7b7b';
+      context.setLineDash([6, 6]);
+      context.beginPath();
+      context.moveTo(x, top);
+      context.lineTo(x, bottom);
+      context.stroke();
+      context.setLineDash([]);
+      context.fillStyle = '#6b7280';
+      context.font = '11px system-ui';
+      context.fillText("Aujourd'hui", x + 5, top - 5);
+      context.restore();
+    }
+  };
+  const legendOrder = new Map([
+    'Débit observé (m³/s)',
+    'Précipitations observées',
+    'Débit prévu p25-p75',
+    'Précipitations prévues p50',
+    'Précipitations prévues',
+    'Débit prévu p50',
+    'Débit prévu GR4J',
+    'Débit prévu p10-p90',
+    'Précipitations prévues p10-p90',
+  ].map((label, index) => [label, index]));
+
+  document.getElementById('chart-title').textContent =
+    `Bassin versant du ${selectedBasin.properties.nom}`;
+  if (hydroChart) hydroChart.destroy();
+  hydroChart = new Chart(document.getElementById('hydro-chart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            filter: item => item.text !== '',
+            boxWidth: 14,
+            padding: 10,
+            color: '#334155',
+            font: { size: 11 },
+            sort: (a, b) =>
+              (legendOrder.get(a.text) ?? 100) - (legendOrder.get(b.text) ?? 100)
+          }
+        },
+        tooltip: {
+          callbacks: {
+            title: items => dates[items[0].dataIndex],
+            label: item => {
+              const label = item.dataset.label;
+              if (!label) return '';
+              const value = item.raw;
+              if (Array.isArray(value)) {
+                return `${label}: ${value[0]}–${value[1]} mm`;
+              }
+              const unit = item.dataset.yAxisID === 'flow' ? 'm³/s' : 'mm';
+              return `${label}: ${item.formattedValue} ${unit}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Date', color: '#334155' },
+          grid: { display: false },
+          ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#334155' }
+        },
+        precipitation: {
+          type: 'linear', position: 'left', min: 0, max: precipitationMax,
+          reverse: true,
+          title: { display: true, text: 'Précipitations (mm)', color: '#334155' },
+          grid: { color: '#e5eaf0' },
+          ticks: { color: '#334155' }
+        },
+        flow: {
+          type: 'linear', position: 'right', beginAtZero: true,
+          title: { display: true, text: 'Débit (m³/s)', color: '#334155' },
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#334155' }
+        }
+      }
+    },
+    plugins: [todayDivider]
   });
 
   document.getElementById('p-disclaimer').textContent = data.disclaimer || '';
@@ -180,54 +386,105 @@ function showCharts(data) {
   document.getElementById('content').style.display = 'block';
 }
 
-function short(d) { return d ? d.slice(5) : ''; }
+function formatDate(d) {
+  return new Intl.DateTimeFormat('fr-FR', {day: 'numeric', month: 'short'})
+    .format(new Date(`${d}T12:00:00`));
+}
 function pad(arr, n, v) { const out = arr.slice(0, n).concat(Array(Math.max(0, n - arr.length)).fill(v)); return out; }
 
-async function loadStation(code, title, meta) {
-  openPanel(title, meta);
+async function loadStation(stationFeature) {
+  const requestId = ++hydroRequestId;
+  const station = stationFeature.properties;
+  openPanel(station.nom,
+    `Station Hub'Eau ${station.code} · bassin ≈ ${station.area_km2.toLocaleString('fr')} km²`,
+    stationFeature);
   try {
-    const r = await fetch(`${API}/api/hydro/${code}`);
+    const r = await fetch(`${API}/api/hydro/${station.code}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    showCharts(await r.json());
+    const data = await r.json();
+    if (requestId !== hydroRequestId) return;
+    showCharts(data);
   } catch (e) {
-    document.getElementById('loading').innerHTML =
-      '❌ Erreur de chargement (' + e.message + ').<br>Vérifiez que l\'API est démarrée.';
+    if (requestId !== hydroRequestId) return;
+    document.getElementById('loading').textContent =
+      `❌ Erreur de chargement (${e.message}). Vérifiez que l'API est démarrée.`;
   }
 }
 
-// --- Couches ---
-fetch(`${API}/api/watersheds`).then(r => r.json()).then(g => {
-  L.geoJSON(g, {
-    style: { color: '#3b82f6', weight: 1.5, fillColor: '#93c5fd', fillOpacity: 0.15 },
-    onEachFeature: (f, layer) => layer.bindTooltip(f.properties.nom)
-  }).addTo(map);
-});
+function selectStation(code) {
+  const basinId = String(selectedBasin.properties.id);
+  const stationFeature = stationFeatures.find(feature =>
+    feature.properties.code === code
+      && (feature.properties.bassin_ids || []).includes(basinId));
+  if (!stationFeature) return;
+  stationSelect.value = code;
+  selectorHint.textContent = `Station sélectionnée : ${stationFeature.properties.nom}.`;
+  loadStation(stationFeature);
+}
 
-fetch(`${API}/api/rivers`).then(r => r.json()).then(g => {
-  L.geoJSON(g, {
-    style: { color: '#1d4ed8', weight: 3, opacity: 0.75 },
-    onEachFeature: (f, layer) => {
-      const st = f.properties.station_exutoire;
-      layer.bindTooltip(f.properties.nom, { sticky: true });
-      layer.on('click', () => loadStation(st, f.properties.nom,
-        'Exutoire : ' + st + ' — cliquez sur les données'));
-    }
-  }).addTo(map);
-});
+function selectBasin(id) {
+  selectedBasin = watershedFeatures.find(feature =>
+    String(feature.properties.id) === String(id));
+  if (!selectedBasin) return;
 
-fetch(`${API}/api/stations`).then(r => r.json()).then(g => {
-  L.geoJSON(g, {
-    pointToLayer: (_, latlng) =>
-      L.circleMarker(latlng, { radius: 7, color: '#fff', weight: 2,
-        fillColor: '#dc2626', fillOpacity: 1 }),
-    onEachFeature: (f, layer) => {
-      const p = f.properties;
-      layer.bindTooltip(p.nom, { sticky: true });
-      layer.on('click', () => loadStation(p.code, p.nom,
-        `Station Hub'Eau ${p.code} · bassin ≈ ${p.area_km2.toLocaleString('fr')} km²`));
+  closePanel();
+  basinLayer.clearLayers();
+  basinLayer.addData(selectedBasin);
+  if (basinLayer.getBounds().isValid()) map.fitBounds(basinLayer.getBounds().pad(0.1));
+
+  const basinId = String(selectedBasin.properties.id);
+  const matchingStations = stationFeatures.filter(feature =>
+    (feature.properties.bassin_ids || []).includes(basinId));
+  stationsLayer.clearLayers();
+  stationsLayer.addData(matchingStations);
+
+  stationSelect.replaceChildren(new Option(
+    matchingStations.length ? 'Choisir une station…' : 'Aucune station disponible',
+    ''
+  ));
+  for (const feature of matchingStations) {
+    stationSelect.add(new Option(feature.properties.nom, feature.properties.code));
+  }
+  stationSelect.disabled = matchingStations.length === 0;
+  selectorHint.textContent = matchingStations.length
+    ? 'Choisissez une station dans la liste ou cliquez sur un point rouge.'
+    : 'Aucune station hydrométrique ne correspond à ce bassin.';
+}
+
+basinSelect.addEventListener('change', () => selectBasin(basinSelect.value));
+stationSelect.addEventListener('change', () => selectStation(stationSelect.value));
+
+async function loadLayers() {
+  selectorHint.textContent = 'Chargement des bassins et des stations…';
+  try {
+    const [basinResponse, stationResponse] = await Promise.all([
+      fetch(`${API}/api/watersheds`),
+      fetch(`${API}/api/stations`)
+    ]);
+    if (!basinResponse.ok || !stationResponse.ok) {
+      throw new Error(`HTTP ${!basinResponse.ok ? basinResponse.status : stationResponse.status}`);
     }
-  }).addTo(map);
-});
+    const [basins, stations] = await Promise.all([
+      basinResponse.json(), stationResponse.json()
+    ]);
+    watershedFeatures = basins.features || [];
+    stationFeatures = stations.features || [];
+    if (!watershedFeatures.length) throw new Error('Aucun bassin disponible');
+
+    basinSelect.replaceChildren();
+    for (const feature of watershedFeatures) {
+      basinSelect.add(new Option(feature.properties.nom, feature.properties.id));
+    }
+    basinSelect.disabled = false;
+    selectBasin(basinSelect.value);
+  } catch (error) {
+    basinSelect.disabled = true;
+    stationSelect.disabled = true;
+    selectorHint.textContent = `❌ Erreur de chargement des couches : ${error.message}`;
+  }
+}
+
+loadLayers();
 </script>
 </body>
 </html>
