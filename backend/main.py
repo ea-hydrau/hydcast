@@ -10,11 +10,14 @@ Données :
 
 import copy
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
+import geopandas as gpd
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from shapely.geometry import mapping
 
 try:
     from .gr4j import GR4J, run_series      # uvicorn backend.main:app
@@ -40,86 +43,85 @@ WARMUP_DAYS = 60     # montée en régime du GR4J (jours)
 ENSEMBLE_MODEL = "ecmwf_seamless"   # 51 membres
 
 # ------------------------------------------------------------------
-# Données du bassin pilote (à terme : couche PostGIS `watersheds`)
+# Couches SIG du bassin du Doux
 # ------------------------------------------------------------------
 
-WATERSHEDS = {
-    "type": "FeatureCollection",
-    "features": [{
-        "type": "Feature",
-        "properties": {
-            "id": "seine_amont_paris",
-            "nom": "Bassin de la Seine (amont de Paris)",
-            "surface_km2": 31000,
-        },
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [[
-                [2.05, 48.30], [2.10, 48.95], [2.35, 49.10], [3.20, 49.12],
-                [4.10, 49.05], [4.60, 48.95], [4.90, 48.55], [5.10, 48.35],
-                [4.90, 47.95], [4.55, 47.30], [4.30, 47.30], [4.00, 47.60],
-                [3.90, 47.90], [3.30, 47.90], [2.85, 48.00], [2.60, 48.10],
-                [2.05, 48.30]
-            ]]
-        }
-    }]
+DATA_DIR = Path(__file__).resolve().parent / "data"
+WATERSHED_FILE = DATA_DIR / "ssbv_doux_wgs84.gpkg"
+STATIONS_FILE = DATA_DIR / "StationHydro_FXX_Doux.gpkg"
+
+# Surfaces drainées aux stations, fournies par l'utilisateur (km²).
+STATION_AREAS_KM2 = {
+    "V371402001": 253,
+    "V372401001": 372,
+    "V374401001": 671,
 }
 
-# Tronçons simplifiés (géométries indicatives, à remplacer par les couches
-# hydrographiques officielles — ex. SANDRE / BDCARTHAGE).
-RIVERS = {
-    "type": "FeatureCollection",
-    "features": [
-        {
-            "type": "Feature",
-            "properties": {"nom": "La Seine", "station_exutoire": "F700000103"},
-            "geometry": {"type": "LineString", "coordinates": [
-                [4.72, 47.51], [4.27, 48.00], [4.07, 48.30], [3.62, 48.51],
-                [3.00, 48.41], [2.955, 48.39], [2.75, 48.51], [2.66, 48.54],
-                [2.49, 48.61], [2.37, 48.85]
-            ]}
-        },
-        {
-            "type": "Feature",
-            "properties": {"nom": "La Marne", "station_exutoire": "F700000103"},
-            "geometry": {"type": "LineString", "coordinates": [
-                [4.95, 48.64], [4.36, 48.956], [3.96, 49.04], [2.90, 48.96],
-                [2.41, 48.83]
-            ]}
-        },
-        {
-            "type": "Feature",
-            "properties": {"nom": "L'Yonne", "station_exutoire": "F700000103"},
-            "geometry": {"type": "LineString", "coordinates": [
-                [4.06, 46.95], [3.586, 47.798], [3.40, 47.99], [3.00, 48.25],
-                [2.955, 48.39]
-            ]}
-        },
-        {
-            "type": "Feature",
-            "properties": {"nom": "L'Aube", "station_exutoire": "F400000102"},
-            "geometry": {"type": "LineString", "coordinates": [
-                [4.85, 48.25], [4.30, 48.48], [3.72, 48.51], [3.46, 48.51]
-            ]}
-        }
-    ]
-}
 
-# Stations hydrométriques Hub'Eau (code = station débitmétrique temps réel).
-# Les surfaces de bassin sont indicatives (pilote) et servent au dimensionnement
-# du GR4J (conversion mm/j -> m³/s) ; à affiner avec les fiches Vigicrues.
-STATIONS = [
-    {"code": "H170001001", "nom": "La Seine à Pont-sur-Seine",
-     "lat": 48.513, "lon": 3.615, "area_km2": 4000},
-    {"code": "F240000106", "nom": "La Seine à Bazoches-lès-Bray",
-     "lat": 48.425, "lon": 2.999, "area_km2": 6700},
-    {"code": "F400000102", "nom": "La Seine à Montereau-Fault-Yonne",
-     "lat": 48.389, "lon": 2.953, "area_km2": 12000},
-    {"code": "F447000302", "nom": "La Seine à Saint-Fargeau-Ponthierry",
-     "lat": 48.536, "lon": 2.548, "area_km2": 21000},
-    {"code": "F700000103", "nom": "La Seine à Paris - Austerlitz",
-     "lat": 48.8447, "lon": 2.3655, "area_km2": 31000},
-]
+def load_watersheds():
+    layer = gpd.read_file(WATERSHED_FILE)
+    if layer.crs is None:
+        raise ValueError(f"Le système de coordonnées manque dans {WATERSHED_FILE}")
+
+    areas_km2 = (
+        layer.to_crs("EPSG:2154").geometry.area / 1_000_000
+    ).round(2)
+    layer = layer.to_crs("EPSG:4326")
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "id": row["CD_SSBV"],
+                    "nom": row["LIB_SSBV"],
+                    "surface_km2": float(area_km2),
+                },
+                "geometry": mapping(row.geometry),
+            }
+            for (_, row), area_km2 in zip(layer.iterrows(), areas_km2)
+        ],
+    }
+
+
+def load_stations():
+    layer = gpd.read_file(STATIONS_FILE)
+    if layer.crs is None:
+        raise ValueError(f"Le système de coordonnées manque dans {STATIONS_FILE}")
+    layer = layer.to_crs("EPSG:4326")
+
+    basins = gpd.read_file(WATERSHED_FILE)
+    if basins.crs is None:
+        raise ValueError(f"Le système de coordonnées manque dans {WATERSHED_FILE}")
+    basins = basins.to_crs("EPSG:4326")
+
+    stations = []
+    for _, row in layer.iterrows():
+        code = str(row["CdStationHydro"])
+        point = row.geometry
+        if point.geom_type != "Point":
+            raise ValueError(f"La géométrie de la station {code} n'est pas un point")
+        basin_ids = [
+            str(basin["CD_SSBV"])
+            for _, basin in basins.iterrows()
+            if basin.geometry.covers(point)
+        ]
+        stations.append({
+            "code": code,
+            "nom": row["LbStationHydro"],
+            "lat": point.y,
+            "lon": point.x,
+            "area_km2": STATION_AREAS_KM2[code],
+            "bassin_ids": basin_ids,
+        })
+    return stations
+
+
+WATERSHEDS = load_watersheds()
+STATIONS = load_stations()
+
+# Aucun tronçon de cours d'eau n'a été fourni pour le Doux.
+RIVERS = {"type": "FeatureCollection", "features": []}
 
 STATIONS_BY_CODE = {s["code"]: s for s in STATIONS}
 
@@ -313,8 +315,25 @@ async def get_hydro(station_code: str, past_days: Optional[int] = Query(None, ge
     rain = daily.get("precipitation_sum", [])
     etp = daily.get("et0_fao_evapotranspiration", [])
 
+    if not dates or len(rain) != len(dates) or len(etp) != len(dates):
+        raise HTTPException(502, "Série météo incomplète reçue d'Open-Meteo")
+
+    # Open-Meteo peut ne pas avoir les premiers jours demandés dans son historique.
+    first_valid = next(
+        (i for i, (p, e) in enumerate(zip(rain, etp))
+         if p is not None and e is not None),
+        None,
+    )
+    if first_valid is None:
+        raise HTTPException(502, "Aucune donnée météo exploitable reçue d'Open-Meteo")
+    dates, rain, etp = dates[first_valid:], rain[first_valid:], etp[first_valid:]
+    if any(p is None or e is None for p, e in zip(rain, etp)):
+        raise HTTPException(502, "Données météo manquantes dans la période exploitable")
+
     # La série déterministe se termine par la prévision :
     n_hist = len(dates) - FORECAST_DAYS
+    if n_hist < past:
+        raise HTTPException(502, "Historique météo insuffisant pour la période demandée")
 
     # --- Recalage simple du GR4J sur les débits observés (facteur borné) ---
     q_sim_mm, _ = run_series(rain, etp, area_km2=station["area_km2"])
